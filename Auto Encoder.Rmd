@@ -1,0 +1,156 @@
+---
+title: "Auto Encoders"
+author: "Hamza Gouaref"
+date: "2024-10-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(reticulate)
+
+use_python("C:/Users/TWTEC/anaconda3/envs/r-keras/python.exe", required = TRUE)
+
+```
+
+```{r}
+library(keras)
+install_keras(method = "conda", envname = "r-keras")
+
+
+```
+
+```{r}
+use_python("C:/Users/TWTEC/anaconda3/envs/r-keras/python.exe", required = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(ggplot2)
+library(reshape2)
+```
+
+## **Load and Preprocess the MNIST Dataset**
+
+```{r}
+mnist <- dataset_mnist()
+
+x_train <- mnist$train$x
+x_test <- mnist$test$x
+
+# Rescale images to values between 0 and 1
+x_train <- x_train / 255
+x_test <- x_test / 255
+
+# Reshape to add channel dimension
+x_train <- array_reshape(x_train, c(nrow(x_train), 28, 28, 1))
+
+x_test <- array_reshape(x_test, c(nrow(x_test), 28, 28, 1))
+
+# Check the shape to confirm
+dim(x_train)
+
+
+```
+
+## **Exemple**
+
+```{r}
+index_image <- sample(1:60000,1)
+
+
+x_train[index_image, 1:28, 1:28,1] %>% 
+  as_data_frame() %>% 
+  rownames_to_column(var = "y") %>% 
+  pivot_longer(cols = V1:V28, names_to = "x", values_to = "val") %>% 
+  mutate(x = str_replace(x, "V" ,""),
+         x = as.numeric(x),
+         y = as.numeric(y),
+         y = 28-y) %>% 
+  ggplot(aes(x = x, y = y)) + 
+  geom_tile(aes(fill = val)) + 
+  scale_fill_distiller(type = "seq", direction = -1,palette = "Greys") +
+  coord_fixed() +
+  theme_bw() +
+  theme(legend.position = "none",
+        axis.title = element_blank()) 
+  
+
+```
+
+## **Build the Variational Autoencoder (VAE)**
+
+```{r}
+
+x_train <- array_reshape(x_train, c(nrow(x_train), 784))  # Flatten 28x28 to 784 features
+
+input_dim <- 784       # Flattened 28x28 images
+latent_dim <- 2        # Latent space dimension for generating new digits
+
+# Encoder
+encoder_input <- layer_input(shape = input_dim)
+encoder_output <- encoder_input %>%
+  layer_dense(units = 512, activation = "relu") %>%
+  layer_dense(units = 256, activation = "relu") %>%
+  layer_dense(units = latent_dim)  # Compressed latent representation
+
+encoder <- keras_model(encoder_input, encoder_output)
+
+# Decoder
+decoder_input <- layer_input(shape = latent_dim)
+decoder_output <- decoder_input %>%
+  layer_dense(units = 256, activation = "relu") %>%
+  layer_dense(units = 512, activation = "relu") %>%
+  layer_dense(units = input_dim, activation = "sigmoid")  # Reconstructed image
+
+decoder <- keras_model(decoder_input, decoder_output)
+
+# VAE Model - Encoder + Decoder
+vae_input <- layer_input(shape = input_dim)
+latent_space <- encoder(vae_input)
+vae_output <- decoder(latent_space)
+vae <- keras_model(vae_input, vae_output)
+
+# Compile the VAE model
+vae %>% compile(
+  optimizer = "adam",
+  loss = "binary_crossentropy"
+)
+
+# Train the VAE model
+history <- vae %>% fit(
+  x_train, x_train,
+  epochs = 50,
+  batch_size = 256,
+  validation_split = 0.2
+)
+
+# Plot training history
+plot(history)
+
+
+```
+
+## **Generate new digit by sampling from latent space**
+
+```{r}
+
+sampled_latent <- matrix(runif(2, min = -2, max = 2), nrow = 1)  # Random point in latent space
+
+generated_digit <- decoder %>% predict(sampled_latent)
+generated_digit <- array_reshape(generated_digit, c(28, 28))
+
+# Plot the generated digit
+
+ggplot(melt(generated_digit), aes(Var2, Var1, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient(low = "black", high = "white") +
+  theme_minimal() +
+  coord_fixed() +
+  ggtitle("Generated Digit")
+
+```
